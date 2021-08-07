@@ -1,0 +1,34 @@
+import java.time.Instant
+
+ext {
+    generatedResourcesDir = file("${buildDir}/generated-resources")
+}
+
+version gitVersion()
+ext { isReleaseVersion = versionDetails().isCleanTag }
+if (!isReleaseVersion) {
+    project.version += '-SNAPSHOT'
+}
+
+sourceSets.each {
+    it.resources.srcDirs generatedResourcesDir
+}
+
+task generateVersionInfo() {
+    def projectVersion = project.version
+    def gitRevision = versionDetails().gitHashFull
+    def outFiles = fileTree(generatedResourcesDir)
+    inputs.property('version', projectVersion)
+    inputs.property('revision', gitRevision)
+    outputs.files(outFiles)
+    doLast {
+        generatedResourcesDir.mkdirs()
+        file("${generatedResourcesDir}/version.txt").text = projectVersion
+        file("${generatedResourcesDir}/revision.txt").text = gitRevision
+        file("${generatedResourcesDir}/built_at.txt").text = Instant.now() as String
+    }
+}
+
+tasks.withType(ProcessResources) {
+    dependsOn generateVersionInfo
+}

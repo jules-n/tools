@@ -1,1 +1,8 @@
+pluginManagement {
+    plugins {
+        id 'com.palantir.git-version' version this['gradle.plugin.palantir.git-version.version']
+        id 'com.coditory.integration-test' version this['gradle.plugin.coditory.integration-test']
+    }
+}
+
 rootProject.name = 'tools'

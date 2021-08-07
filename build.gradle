@@ -1,11 +1,15 @@
 plugins {
     id 'java'
     id 'groovy'
+    id 'com.palantir.git-version'
+    id 'com.coditory.integration-test'
 }
+
+apply from: 'gradle/versioning.gradle'
 
 // TODO: put correct name here
 group = 'com.julesn.ss.tools'
-version = '0.0.1-SNAPSHOT'
+description = 'Various tools for SingleSystem application'
 sourceCompatibility = '11'
 targetCompatibility = '11'
 
@@ -16,11 +20,19 @@ repositories {
 
 dependencies {
     // groovy
-    implementation "org.codehaus.groovy:groovy-all:${project['groovy.version']}}"
+    implementation "org.codehaus.groovy:groovy-all:${project['groovy.version']}"
 
     // cli
     implementation "org.codehaus.groovy:groovy-cli-picocli:${project['groovy.version']}"
-    implementation 'info.picocli:picocli:4.6.1'
+    implementation "info.picocli:picocli:${project['picocli.version']}"
+
+    // testing (junit 5 + mockito + assertj)
+    testImplementation "org.junit.jupiter:junit-jupiter-api:${project['junit.version']}"
+    testImplementation "org.junit.jupiter:junit-jupiter-engine:${project['junit.version']}"
+    testImplementation "org.junit.jupiter:junit-jupiter-params:${project['junit.version']}"
+    testImplementation "org.mockito:mockito-core:${project['mockito.version']}"
+    testImplementation "org.assertj:assertj-core:${project['assertj.version']}"
+    integrationImplementation "org.testcontainers:junit-jupiter:${project['testcontainers.version']}"
 }
 
 wrapper {
@@ -28,3 +40,6 @@ wrapper {
     distributionType = 'ALL'
 }
 
+tasks.withType(Test) {
+    useJUnitPlatform()
+}
