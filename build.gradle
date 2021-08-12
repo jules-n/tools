@@ -21,9 +21,12 @@ repositories {
 dependencies {
     // groovy
     implementation "org.codehaus.groovy:groovy-all:${project['groovy.version']}"
+    implementation "org.apache.ivy:ivy:${project['ivy.version']}"
+    implementation "io.vertx:vertx-core:${project['vertx.version']}"
+    implementation "io.vertx:vertx-web-client:${project['vertx.version']}"
+
 
     // cli
-    implementation "org.codehaus.groovy:groovy-cli-picocli:${project['groovy.version']}"
     implementation "info.picocli:picocli:${project['picocli.version']}"
 
     // testing (junit 5 + mockito + assertj)
@@ -33,6 +36,10 @@ dependencies {
     testImplementation "org.mockito:mockito-core:${project['mockito.version']}"
     testImplementation "org.assertj:assertj-core:${project['assertj.version']}"
     integrationImplementation "org.testcontainers:junit-jupiter:${project['testcontainers.version']}"
+}
+
+tasks.withType(GroovyCompile) {
+    groovyClasspath += configurations.runtimeClasspath
 }
 
 wrapper {
