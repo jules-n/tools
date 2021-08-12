@@ -34,7 +34,6 @@ import javax.naming.OperationNotSupportedException
 import java.nio.charset.StandardCharsets
 import java.time.Duration
 import java.time.Instant
-import java.time.format.DateTimeFormatter
 import java.util.concurrent.CountDownLatch
 import java.util.function.Function
 
