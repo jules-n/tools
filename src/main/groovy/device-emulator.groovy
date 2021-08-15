@@ -42,6 +42,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.function.Function
 
 import static DataPattern.RANDOM
+import static DataPattern.SINE
 import static DeviceType.TEMPERATURE_READ
 import static EventFormat.JSON
 import static TransportType.HTTP
@@ -52,26 +53,40 @@ import static java.util.UUID.randomUUID
 // cli definition
 cli = new CliBuilder(name: 'device-emulator')
 cli.parser.caseInsensitiveEnumValuesAllowed(true)
+cli.usageMessage.sortOptions(false)
+[DeviceType, TransportType, EventFormat, DataPattern].each { enumClass ->
+    enumClass.metaClass.static.getNamesLower = {
+        delegate.values()*.name()*.toLowerCase()
+    }
+    enumClass.metaClass.getNameLower = {
+        delegate.name().toLowerCase()
+    }
+}
 cli.h(longOpt: 'help', 'show usage')
-cli.t(longOpt: 'type', args: 1, type: DeviceType, argName: 'type', defaultValue: 'temperature_read',
-        'device type (default: temperature)')
-cli.s(longOpt: 'transport-type', args: 1, type: TransportType, argName: 'type', defaultValue: 'http',
-        'output transport type')
-cli.f(longOpt: 'format', args: 1, type: EventFormat, argName: 'type', defaultValue: 'json',
-        'event format (default: json)')
+cli.t(longOpt: 'type', args: 1, type: DeviceType, argName: 'type', defaultValue: TEMPERATURE_READ.nameLower,
+        "device type (default: ${TEMPERATURE_READ.nameLower}, supported: ${DeviceType.namesLower})")
+cli.s(longOpt: 'transport-type', args: 1, type: TransportType, argName: 'type', defaultValue: HTTP.nameLower,
+        "output transport type (default: ${HTTP.nameLower}, supoorted: ${TransportType.namesLower})")
+cli.f(longOpt: 'format', args: 1, type: EventFormat, argName: 'type', defaultValue: JSON.nameLower,
+        "event format (default: ${JSON.nameLower}, supported: ${EventFormat.namesLower})")
 cli._(longOpt: 'url', args: 1, type: String, argName: 'url', defaultValue: 'http://localhost:8100',
-        'url to send device events to')
-cli.n(longOpt: 'num-devices', args: 1, type: Integer, argName: 'num', defaultValue: '1', 'number of devices to emulate')
-cli.p(longOpt: 'data-pattern', args: 1, type: DataPattern, argName: 'pattern-type', defaultValue: 'random',
-        'generated data pattern (default: random)')
+        'url to send device events to (default: http://localhost:8100)')
+cli.n(longOpt: 'num-devices', args: 1, type: Integer, argName: 'num', defaultValue: '1',
+        'number of devices to emulate (default: 1)')
+cli.p(longOpt: 'data-pattern', args: 1, type: DataPattern, argName: 'pattern-type', defaultValue: RANDOM.nameLower,
+        "generated data pattern (default: ${RANDOM.nameLower}, supported: ${DataPattern.namesLower})")
+cli._(longOpt: 'data-pattern-period', args: 1, argName: 'duration', defaultValue: '2m',
+        'period of periodic data pattern (default: 2m)')
 cli._(longOpt: 'from', args: 1, argName: 'value', type: BigDecimal, defaultValue: '0',
-        'lower boundary of generated data range')
+        'lower boundary of generated data range (default: 0)')
 cli._(longOpt: 'to', args: 1, argName: 'value', type: BigDecimal, defaultValue: '100',
-        'upper boundary of generated data range')
-cli.i(longOpt: 'interval', args: 1, argName: 'duration', defaultValue: '5s', 'interval between events')
+        'upper boundary of generated data range (default: 100)')
+cli.i(longOpt: 'interval', args: 1, argName: 'duration', defaultValue: '5s', 'interval between events (default: 5s)')
 cli.d(longOpt: 'duration', args: 1, argName: 'duration', 'how long to generate events')
-cli.e(longOpt: 'num-events', args: 1, argName: 'num', type: Long, 'how many events each device should generate')
-cli.m(longOpt: 'max-total-events', args: 1, argName: 'num', type: Long, 'maximum total events being sent out')
+cli.e(longOpt: 'num-events', args: 1, argName: 'num', type: Long,
+        'how many events each device should generate')
+cli.m(longOpt: 'max-total-events', args: 1, argName: 'num', type: Long,
+        'maximum total events being sent out')
 cli.v(longOpt: 'v', 'verbose output')
 cli.vv(longOpt: 'vv', 'more verbose output')
 cli.vvv(longOpt: 'vvv', 'most verbose output')
@@ -93,6 +108,7 @@ eventFormat = cliOpts.f
 url = cliOpts.url
 numDevices = cliOpts.n
 dataPattern = cliOpts.p
+dataPatternPeriod = Duration.parse "PT${cliOpts['data-pattern-period']}"
 verbosity = cliOpts.vvv ? [true] * 4
         : cliOpts.vv ? [true] * 3 + [false]
         : cliOpts.v ? [true] * 2 + [false] * 2
@@ -106,17 +122,21 @@ if (interval <= Duration.ZERO) {
 if (duration && duration <= Duration.ZERO) {
     return error(IllegalArgumentException, "duration should be positive: ${duration}")
 }
+if (dataPatternPeriod <= Duration.ZERO) {
+    return error(IllegalArgumentException, "data pattern period should be positive: ${dataPatternPeriod}")
+}
 if (deviceType !in [TEMPERATURE_READ]) {
-    return error(OperationNotSupportedException, "device type not supported yet: ${deviceType}")
+    return error(OperationNotSupportedException, "device type not supported yet: ${deviceType.nameLower}")
 }
 if (transport !in [HTTP]) {
-    return error(OperationNotSupportedException, "output transport type not supported yet: ${transport}")
+    return error(OperationNotSupportedException, "output transport type not supported yet: ${transport.nameLower}")
 }
 if (eventFormat !in [JSON]) {
-    return error(OperationNotSupportedException, "event format not supported yet: ${eventFormat}")
+    return error(OperationNotSupportedException, "event format not supported yet: ${eventFormat.nameLower}")
 }
-if (dataPattern !in [RANDOM]) {
-    return error(OperationNotSupportedException, "generated data pattern not supported yet: ${dataPattern}")
+if (dataPattern !in [RANDOM, SINE]) {
+    return error(OperationNotSupportedException,
+            "generated data pattern not supported yet: ${dataPattern.nameLower}")
 }
 if (numDevices <= 0) {
     return error(IllegalArgumentException, "number of devices should be positive: ${numDevices}")
@@ -176,6 +196,7 @@ if (cfg.verbosity[1]) {
 class AppConfig {
     List<Boolean> verbosity
     DataPattern dataPattern
+    Duration dataPatternPeriod
     DeviceType deviceType
     EventFormat eventFormat
     TransportType transportType
@@ -199,6 +220,7 @@ class AppConfig {
             url = cliOpts.url
             numOfGenerators = cliOpts.n
             dataPattern = cliOpts.p
+            dataPatternPeriod = Duration.parse "PT${cliOpts['data-pattern-period']}"
             from = cliOpts.from
             to = cliOpts.to
             verbosity = cliOpts.vvv ? [true] * 4
@@ -236,6 +258,9 @@ class GeneratorProvider {
         switch (cfg.dataPattern) {
             case RANDOM:
                 generator = new RandomGenerator()
+                break
+            case SINE:
+                generator = new SineGenerator(period: cfg.dataPatternPeriod)
                 break
             default:
                 throw new UnsupportedOperationException("unsupported data generation pattern: ${cfg.dataPattern}")
@@ -306,6 +331,24 @@ class RandomGenerator implements Generator {
     @Override
     double generate() {
         rnd.nextDouble()
+    }
+}
+
+class SineGenerator implements Generator {
+    private static final BigDecimal PIx2 = Math.PI * 2
+    private Duration period
+    private Instant prevGenTime
+    private BigDecimal prevPos
+
+    @Override
+    double generate() {
+        def now = Instant.now()
+        def timeShift = prevGenTime ? Duration.between(prevGenTime, now) : Duration.ZERO
+        def posShift = (timeShift.toMillis() / period.toMillis()) * PIx2
+        def pos = (prevPos ?: 0.0) + posShift
+        prevGenTime = now
+        prevPos = pos
+        (Math.sin(pos) * 0.5) + 0.5
     }
 }
 
@@ -823,7 +866,8 @@ class TemperatureReadEvent {
 }
 
 enum DataPattern {
-    RANDOM
+    RANDOM,
+    SINE
 }
 
 enum DeviceType {
