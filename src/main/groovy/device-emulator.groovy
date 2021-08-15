@@ -22,11 +22,15 @@ import io.vertx.core.Handler
 import io.vertx.core.Promise
 import io.vertx.core.TimeoutStream
 import io.vertx.core.Vertx
+import io.vertx.core.VertxOptions
 import io.vertx.core.buffer.Buffer
+import io.vertx.core.eventbus.DeliveryOptions
 import io.vertx.core.eventbus.EventBus
+import io.vertx.core.eventbus.MessageCodec
 import io.vertx.core.eventbus.MessageConsumer
 import io.vertx.core.eventbus.MessageProducer
 import io.vertx.core.http.HttpMethod
+import io.vertx.core.impl.cpu.CpuCoreSensor
 import io.vertx.ext.web.client.WebClient
 import io.vertx.ext.web.client.WebClientOptions
 
@@ -137,7 +141,17 @@ addShutdownHook {
     }
 }
 def appFinishLatch = new CountDownLatch(1)
-vertx = Vertx.vertx()
+def availableCpus = CpuCoreSensor.availableProcessors()
+def vertxOpts = new VertxOptions().tap {
+    eventLoopPoolSize = availableCpus
+    workerPoolSize = availableCpus > 3 ? (availableCpus / 2).round().toInteger() : availableCpus
+}
+if (verbosity[1]) {
+    println "vertx threads config: elThreads=${vertxOpts.eventLoopPoolSize}, workerThreads=${vertxOpts.workerPoolSize}"
+}
+vertx = Vertx.vertx(vertxOpts)
+def ebSafePublishingLocalOnlyCodec = new SafePublishingLocalOnlyCodec()
+vertx.eventBus().registerCodec(ebSafePublishingLocalOnlyCodec)
 def coordinator = new CoordinatorActor(cfg: cfg, doOnComplete: {
     if (cfg.verbosity[2]) {
         println "closing vertx..."
@@ -643,7 +657,7 @@ class EventGeneratorActor extends AbstractVerticle {
             if (!isRunning) {
                 return
             }
-            eventSender = eb.sender sendEventAddr
+            eventSender = eb.sender sendEventAddr, new DeliveryOptions(codecName: SafePublishingLocalOnlyCodec.NAME)
             ticker = vertx.periodicStream(cfg.eventInterval.toMillis()).handler {
                 generate()
             }
@@ -720,7 +734,7 @@ class EventGeneratorActor extends AbstractVerticle {
     }
 
     private def notifyGeneratorFinished() {
-        eb.send generatorFinishedAddr, deploymentID()
+        eb.send generatorFinishedAddr, deploymentID(), new DeliveryOptions(codecName: SafePublishingLocalOnlyCodec.NAME)
     }
 
     private def shouldContinueGenerating() {
@@ -789,7 +803,7 @@ class EventSenderActor extends AbstractVerticle {
     }
 
     private void notifyEventSent() {
-        eb.send incNumSentEventsAddr, null
+        eb.send incNumSentEventsAddr, null, new DeliveryOptions(codecName: SafePublishingLocalOnlyCodec.NAME)
     }
 }
 
@@ -814,6 +828,37 @@ enum EventFormat {
 enum TransportType {
     HTTP,
     MQTT
+}
+
+class SafePublishingLocalOnlyCodec implements MessageCodec<Object, Object> {
+    public static final String NAME = SafePublishingLocalOnlyCodec.class.simpleName
+
+    private volatile Object dataRef
+
+    @Override
+    void encodeToWire(Buffer buffer, Object o) {
+        throw new UnsupportedOperationException()
+    }
+
+    @Override
+    Object decodeFromWire(int pos, Buffer buffer) {
+        throw new UnsupportedOperationException()
+    }
+
+    @Override
+    Object transform(Object data) {
+        dataRef = data
+    }
+
+    @Override
+    String name() {
+        NAME
+    }
+
+    @Override
+    byte systemCodecID() {
+        -1
+    }
 }
 
 def error(Class<? extends Throwable> type, CharSequence msg) {
