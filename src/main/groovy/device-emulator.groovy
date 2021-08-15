@@ -383,6 +383,8 @@ class CoordinatorActor extends AbstractVerticle {
     private Long progressBarTimerId
     private boolean isAnsiTerminal = true
     private Instant startedAt
+    private boolean shouldStopProgressBar = false
+    private Promise<Void> progressBarStopped = Promise.promise()
 
     @Override
     void start(Promise verticleStarted) {
@@ -536,10 +538,10 @@ class CoordinatorActor extends AbstractVerticle {
                 generatorsUndeploy + sendersUndeploy
         isDisposed = true
         CompositeFuture.all(disposeAllResources)
+                .compose {
+                    !cfg.verbosity[1] ? stopProgressBar() : Future.succeededFuture()
+                }
                 .onComplete {
-                    if (!cfg.verbosity[1]) {
-                        stopProgressBar()
-                    }
                     if (cfg.verbosity[1]) {
                         println "all disposed, ready to close vertx"
                     }
@@ -557,6 +559,10 @@ class CoordinatorActor extends AbstractVerticle {
         progressBarTimerId = vertx.setPeriodic(cfg.progressBarRefreshInterval.toMillis()) {
             if (isInfinite) {
                 print "\rgenerated=${numGeneratedEvents} sent=${numSentEvents}"
+                if (shouldStopProgressBar) {
+                    vertx.cancelTimer(progressBarTimerId)
+                    vertx.runOnContext { progressBarStopped.complete() }
+                }
             } else {
                 getTerminalWidth().onComplete {
                     def termWidth = it.result()
@@ -597,15 +603,18 @@ class CoordinatorActor extends AbstractVerticle {
                     def progressMsg = progressBarMsgPart + dataMsgPart
                     def formattedProgressMsg = "\r${progressMsg.padRight(termWidth - 1)}".toString()
                     print formattedProgressMsg
+                    if (shouldStopProgressBar) {
+                        vertx.cancelTimer(progressBarTimerId)
+                        vertx.runOnContext { progressBarStopped.complete() }
+                    }
                 }
             }
         }
     }
 
-    private void stopProgressBar() {
-        if (progressBarTimerId) {
-            vertx.cancelTimer(progressBarTimerId)
-        }
+    private Future<Void> stopProgressBar() {
+        shouldStopProgressBar = true
+        progressBarStopped.future()
     }
 
     private Future<Integer> getTerminalWidth() {
