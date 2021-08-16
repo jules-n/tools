@@ -44,6 +44,7 @@ import java.util.function.Function
 import static DataPattern.FAST_EXP
 import static DataPattern.RANDOM
 import static DataPattern.SINE
+import static DataPattern.SLOW_EXP
 import static DeviceType.TEMPERATURE_READ
 import static EventFormat.JSON
 import static TransportType.HTTP
@@ -140,7 +141,7 @@ if (transport !in [HTTP]) {
 if (eventFormat !in [JSON]) {
     return error(OperationNotSupportedException, "event format not supported yet: ${eventFormat.nameLower}")
 }
-if (dataPattern !in [RANDOM, SINE, FAST_EXP]) {
+if (dataPattern !in [RANDOM, SINE, FAST_EXP, SLOW_EXP]) {
     return error(OperationNotSupportedException,
             "generated data pattern not supported yet: ${dataPattern.nameLower}")
 }
@@ -271,6 +272,9 @@ class GeneratorProvider {
             case FAST_EXP:
                 generator = new FastExpGenerator(cfg: cfg)
                 break
+            case SLOW_EXP:
+                generator = new SlowExpGenerator(cfg: cfg)
+                break
             default:
                 throw new UnsupportedOperationException("unsupported data generation pattern: ${cfg.dataPattern}")
         }
@@ -383,6 +387,31 @@ class FastExpGenerator implements Generator {
         def pos = timeShift / cfg.dataPatternPeriod
         (Math.exp(pos) - 1) / EXP_VAL_RANGE
 
+    }
+}
+
+class SlowExpGenerator implements Generator {
+    private static final BigDecimal FROM_X = 0.0
+    private static final BigDecimal TO_X = 3.0
+    private static final BigDecimal EXP_VAL_RANGE = Math.exp(TO_X) - Math.exp(FROM_X)
+
+    private AppConfig cfg
+    private Instant shouldStopAt
+    private Instant startedAt
+
+    @Override
+    double generate() {
+        def now = Instant.now()
+        if (shouldStopAt && shouldStopAt < now) {
+            return 1.0
+        }
+        def timeShift = startedAt ? Duration.between(startedAt, now) : Duration.ZERO
+        if (!shouldStopAt) {
+            shouldStopAt = now + cfg.dataPatternPeriod
+            startedAt = now
+        }
+        def pos = (timeShift / cfg.dataPatternPeriod) * (TO_X - FROM_X) + FROM_X
+        (Math.exp(pos) - Math.exp(FROM_X)) / EXP_VAL_RANGE
     }
 }
 
@@ -932,7 +961,8 @@ class TemperatureReadEvent {
 enum DataPattern {
     RANDOM,
     SINE,
-    FAST_EXP
+    FAST_EXP,
+    SLOW_EXP
 }
 
 enum DeviceType {
