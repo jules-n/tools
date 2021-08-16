@@ -13,6 +13,7 @@
 import groovy.cli.picocli.CliBuilder
 import groovy.cli.picocli.OptionAccessor
 import groovy.json.JsonOutput
+import groovy.transform.Canonical
 import groovy.transform.ToString
 import io.vertx.core.AbstractVerticle
 import io.vertx.core.AsyncResult
@@ -243,6 +244,12 @@ class AppConfig {
     }
 }
 
+@Canonical
+class EventData {
+    byte[] data
+    Map metadata
+}
+
 interface Generator {
     double generate()
 }
@@ -252,11 +259,11 @@ interface EventBuilder {
 }
 
 interface EventFormatter {
-    byte[] formatEvent(def event)
+    EventData formatEvent(def event)
 }
 
 interface EventSender {
-    Future<Object> sendEvent(byte[] formattedEvent)
+    Future<Object> sendEvent(EventData formattedEvent)
 }
 
 class GeneratorProvider {
@@ -460,8 +467,9 @@ class TemperatureEventBuilder implements EventBuilder {
 
 class JsonEventFormatter implements EventFormatter {
     @Override
-    byte[] formatEvent(Object event) {
-        JsonOutput.toJson(event).getBytes(StandardCharsets.UTF_8)
+    EventData formatEvent(Object event) {
+        new EventData(data: JsonOutput.toJson(event).getBytes(StandardCharsets.UTF_8),
+                metadata: [httpHeaders: ['Content-Type': 'application/json']])
     }
 }
 
@@ -475,9 +483,12 @@ class HttpEventSender implements EventSender {
     private int port
 
     @Override
-    Future<Object> sendEvent(byte[] formattedEvent) {
-        webClient.request(httpMethod, port, host, uriPath)
-                .sendBuffer(Buffer.buffer(formattedEvent))
+    Future<Object> sendEvent(EventData formattedEvent) {
+        def req = webClient.request(httpMethod, port, host, uriPath)
+        formattedEvent.metadata?.httpHeaders?.each { k, v ->
+            req.putHeader(k, v)
+        }
+        req.sendBuffer(Buffer.buffer(formattedEvent.data))
                 .map({ it.bodyAsString() } as Function)
     }
 
@@ -912,7 +923,7 @@ class EventSenderActor extends AbstractVerticle {
     @Override
     void start() {
         eb = vertx.eventBus()
-        eventSenderConsumer = eb.<byte[]> consumer(eventSenderAddr) {
+        eventSenderConsumer = eb.<EventData> consumer(eventSenderAddr) {
             eventSender.sendEvent(it.body())
                     .tap { inFlightEvents++ }
                     .onComplete {
