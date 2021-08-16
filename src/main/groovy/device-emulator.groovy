@@ -41,6 +41,7 @@ import java.time.Instant
 import java.util.concurrent.CountDownLatch
 import java.util.function.Function
 
+import static DataPattern.FAST_EXP
 import static DataPattern.RANDOM
 import static DataPattern.SINE
 import static DeviceType.TEMPERATURE_READ
@@ -50,10 +51,7 @@ import static io.vertx.core.http.HttpMethod.POST
 import static java.lang.System.err
 import static java.util.UUID.randomUUID
 
-// cli definition
-cli = new CliBuilder(name: 'device-emulator')
-cli.parser.caseInsensitiveEnumValuesAllowed(true)
-cli.usageMessage.sortOptions(false)
+// dynamic methods setup
 [DeviceType, TransportType, EventFormat, DataPattern].each { enumClass ->
     enumClass.metaClass.static.getNamesLower = {
         delegate.values()*.name()*.toLowerCase()
@@ -62,6 +60,14 @@ cli.usageMessage.sortOptions(false)
         delegate.name().toLowerCase()
     }
 }
+Duration.metaClass.div = { Duration by ->
+    delegate.toMillis() / by.toMillis()
+}
+
+// cli definition
+cli = new CliBuilder(name: 'device-emulator')
+cli.parser.caseInsensitiveEnumValuesAllowed(true)
+cli.usageMessage.sortOptions(false)
 cli.h(longOpt: 'help', 'show usage')
 cli.t(longOpt: 'type', args: 1, type: DeviceType, argName: 'type', defaultValue: TEMPERATURE_READ.nameLower,
         "device type (default: ${TEMPERATURE_READ.nameLower}, supported: ${DeviceType.namesLower})")
@@ -134,7 +140,7 @@ if (transport !in [HTTP]) {
 if (eventFormat !in [JSON]) {
     return error(OperationNotSupportedException, "event format not supported yet: ${eventFormat.nameLower}")
 }
-if (dataPattern !in [RANDOM, SINE]) {
+if (dataPattern !in [RANDOM, SINE, FAST_EXP]) {
     return error(OperationNotSupportedException,
             "generated data pattern not supported yet: ${dataPattern.nameLower}")
 }
@@ -260,7 +266,10 @@ class GeneratorProvider {
                 generator = new RandomGenerator()
                 break
             case SINE:
-                generator = new SineGenerator(period: cfg.dataPatternPeriod)
+                generator = new SineGenerator(cfg: cfg)
+                break
+            case FAST_EXP:
+                generator = new FastExpGenerator(cfg: cfg)
                 break
             default:
                 throw new UnsupportedOperationException("unsupported data generation pattern: ${cfg.dataPattern}")
@@ -336,7 +345,8 @@ class RandomGenerator implements Generator {
 
 class SineGenerator implements Generator {
     private static final BigDecimal PIx2 = Math.PI * 2
-    private Duration period
+
+    private AppConfig cfg
     private Instant prevGenTime
     private BigDecimal prevPos
 
@@ -344,11 +354,65 @@ class SineGenerator implements Generator {
     double generate() {
         def now = Instant.now()
         def timeShift = prevGenTime ? Duration.between(prevGenTime, now) : Duration.ZERO
-        def posShift = (timeShift.toMillis() / period.toMillis()) * PIx2
+        def posShift = (timeShift / cfg.dataPatternPeriod) * PIx2
         def pos = (prevPos ?: 0.0) + posShift
         prevGenTime = now
         prevPos = pos
         (Math.sin(pos) * 0.5) + 0.5
+    }
+}
+
+class FastExpGenerator implements Generator {
+    private static final BigDecimal EXP_VAL_RANGE = Math.E - 1
+
+    private AppConfig cfg
+    private Instant shouldStopAt
+    private Instant startedAt
+
+    @Override
+    double generate() {
+        def now = Instant.now()
+        if (shouldStopAt && shouldStopAt < now) {
+            return 1.0
+        }
+        def timeShift = startedAt ? Duration.between(startedAt, now) : Duration.ZERO
+        if (!shouldStopAt) {
+            shouldStopAt = now + cfg.dataPatternPeriod
+            startedAt = now
+        }
+        def pos = timeShift / cfg.dataPatternPeriod
+        (Math.exp(pos) - 1) / EXP_VAL_RANGE
+
+    }
+}
+
+class LogGenerator implements Generator {
+    private AppConfig cfg
+
+    @Override
+    double generate() {
+        // TODO: implement
+        throw new UnsupportedOperationException('not implemented')
+    }
+}
+
+class ExpPeriodicGenerator implements Generator {
+    private AppConfig cfg
+
+    @Override
+    double generate() {
+        // TODO: implement
+        throw new UnsupportedOperationException('not implemented')
+    }
+}
+
+class LogPeriodicGenerator implements Generator {
+    private AppConfig cfg
+
+    @Override
+    double generate() {
+        // TODO: implement
+        throw new UnsupportedOperationException('not implemented')
     }
 }
 
@@ -867,7 +931,8 @@ class TemperatureReadEvent {
 
 enum DataPattern {
     RANDOM,
-    SINE
+    SINE,
+    FAST_EXP
 }
 
 enum DeviceType {
