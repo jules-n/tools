@@ -44,6 +44,11 @@ $ ./device-emulator.groovy -n 10 --duration=45s --url='https://webhook.site/8e42
 ```shell
 $ ./device-emulator.groovy --from=34 --to=42
 ```
+- Emulate 2 devices with specific device IDs. Note that `device-ids` option overrides `--num-devices` option, number of
+devices will be same as number of device IDs specified in the list:
+```shell
+device-emulator -i 1s -n 10 --device-ids=device-1,device-2 -m 10 --url 'https://webhook.site/3214d789-3ede-4c03-9ff0-a34d6f27bdbf'
+```
  - Emulate 10 devices sending temperature read events with random temperature for max 100 events in total, 
 max 30 events per device, and maximum for 80 seconds - whichever condition is met first, the script will stop 
 generating events:

@@ -81,6 +81,9 @@ cli._(longOpt: 'url', args: 1, type: String, argName: 'url', defaultValue: 'http
         'url to send device events to (default: http://localhost:8100)')
 cli.n(longOpt: 'num-devices', args: 1, type: Integer, argName: 'num', defaultValue: '1',
         'number of devices to emulate (default: 1)')
+cli._(longOpt: 'device-ids', args: '1..*', argName: 'id', valueSeparator: ',',
+        'list of device ids to emulate; this option overrides "num-devices" option - the number of devices in this ' +
+                'case will be same as number of ids specified in the list')
 cli.p(longOpt: 'data-pattern', args: 1, type: DataPattern, argName: 'pattern-type', defaultValue: RANDOM.nameLower,
         "generated data pattern (default: ${RANDOM.nameLower}, supported: ${DataPattern.namesLower})")
 cli._(longOpt: 'data-pattern-period', args: 1, argName: 'duration', defaultValue: '2m',
@@ -123,6 +126,7 @@ verbosity = cliOpts.vvv ? [true] * 4
         : [false] * 4
 interval = Duration.parse "PT${cliOpts.i}"
 duration = cliOpts.d ? Duration.parse("PT${cliOpts.d}") : null
+deviceIds = cliOpts['device-idss']
 
 if (interval <= Duration.ZERO) {
     return error(IllegalArgumentException, "interval should be positive: ${interval}")
@@ -148,6 +152,9 @@ if (dataPattern !in [RANDOM, SINE, FAST_EXP, SLOW_EXP]) {
 }
 if (numDevices <= 0) {
     return error(IllegalArgumentException, "number of devices should be positive: ${numDevices}")
+}
+if (deviceIds != null && deviceIds.size() < 1) {
+    return error(IllegalArgumentException, "list of device ids should contain at least one value")
 }
 if (transport == HTTP) {
     try {
@@ -214,6 +221,7 @@ class AppConfig {
     Long globalMaxEvents = -1
     Integer numOfGenerators = 1
     Integer numOfSenders = 1
+    List<String> deviceIds
     BigDecimal from = 0
     BigDecimal to = 100
     String url
@@ -226,7 +234,8 @@ class AppConfig {
             transportType = cliOpts.s
             eventFormat = cliOpts.f
             url = cliOpts.url
-            numOfGenerators = cliOpts.n
+            deviceIds = cliOpts['device-idss']
+            numOfGenerators = deviceIds?.size() ?: cliOpts.n
             dataPattern = cliOpts.p
             dataPatternPeriod = Duration.parse "PT${cliOpts['data-pattern-period']}"
             from = cliOpts.from
@@ -242,6 +251,10 @@ class AppConfig {
             numOfSenders = Runtime.runtime.availableProcessors() + 1
         }
     }
+}
+
+class DeploymentContext {
+    int deviceIndex
 }
 
 @Canonical
@@ -290,12 +303,13 @@ class GeneratorProvider {
 }
 
 class EventBuilderProvider {
-    EventBuilder create(AppConfig cfg) {
+    EventBuilder create(AppConfig cfg, DeploymentContext ctx) {
         def eventBuilder
         switch (cfg.deviceType) {
             case TEMPERATURE_READ:
                 String vendor = "ss-devices"
-                eventBuilder = new TemperatureEventBuilder(deviceId: randomUUID().toString(), range: cfg.from..cfg.to)
+                def deviceId = cfg.deviceIds ? cfg.deviceIds[ctx.deviceIndex] : randomUUID().toString()
+                eventBuilder = new TemperatureEventBuilder(deviceId: deviceId, range: cfg.from..cfg.to)
                 break
             default:
                 throw new UnsupportedOperationException("unsupported device type: ${cfg.deviceType}")
@@ -574,9 +588,10 @@ class CoordinatorActor extends AbstractVerticle {
     private Future<Void> deployGenerators() {
         def rnd = new Random()
         def generatorActors = (0..<cfg.numOfGenerators).collect {
+            def depCtx = new DeploymentContext(deviceIndex: it)
             new EventGeneratorActor(cfg: cfg,
                     generator: generatorProvider.create(cfg),
-                    eventBuilder: eventBuilderProvider.create(cfg),
+                    eventBuilder: eventBuilderProvider.create(cfg, depCtx),
                     eventFormatter: eventFormatterProvider.create(cfg),
                     startDelay: Duration.ofMillis(rnd.nextInt(cfg.eventInterval.toMillis() as int) + 1)
             )
